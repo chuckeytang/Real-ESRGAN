@@ -371,27 +371,52 @@ def main():
         help='Image extension. Options: auto | jpg | png, auto means using the same extension as inputs')
     args = parser.parse_args()
 
-    args.input = args.input.rstrip('/').rstrip('\\')
+    # 确保输出文件夹存在
     os.makedirs(args.output, exist_ok=True)
 
-    if mimetypes.guess_type(args.input)[0] is not None and mimetypes.guess_type(args.input)[0].startswith('video'):
-        is_video = True
+    # 处理单个文件或整个目录
+    if os.path.isdir(args.input):
+        # 遍历目录下所有的视频文件
+        video_formats = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm']
+        video_files = [f for f in glob.glob(os.path.join(args.input, '*')) if os.path.splitext(f)[1].lower() in video_formats]
+
+        if not video_files:
+            print(f"No videos found in {args.input}")
+            return
+
+        for video_path in video_files:
+            print(f"Processing: {video_path}")
+            process_video(video_path, args)
     else:
-        is_video = False
+        # 直接处理单个视频
+        process_video(args.input, args)
 
-    if is_video and args.input.endswith('.flv'):
-        mp4_path = args.input.replace('.flv', '.mp4')
-        os.system(f'ffmpeg -i {args.input} -codec copy {mp4_path}')
-        args.input = mp4_path
 
+def process_video(video_path, args):
+    """处理单个视频"""
+    is_video = mimetypes.guess_type(video_path)[0] is not None and mimetypes.guess_type(video_path)[0].startswith('video')
+
+    if is_video and video_path.endswith('.flv'):
+        mp4_path = video_path.replace('.flv', '.mp4')
+        os.system(f'{args.ffmpeg_bin} -i "{video_path}" -codec copy "{mp4_path}"')
+        video_path = mp4_path
+
+    # 如果 `extract_frame_first` 开启，但输入不是视频，则关闭该选项
     if args.extract_frame_first and not is_video:
         args.extract_frame_first = False
 
+    # 更新输入路径
+    args.input = video_path
+
+    # 运行 Real-ESRGAN 处理
     run(args)
 
+    # 处理 `extract_frame_first` 生成的临时帧
     if args.extract_frame_first:
-        tmp_frames_folder = osp.join(args.output, f'{args.video_name}_inp_tmp_frames')
-        shutil.rmtree(tmp_frames_folder)
+        tmp_frames_folder = osp.join(args.output, f'{osp.basename(video_path)}_inp_tmp_frames')
+        if osp.exists(tmp_frames_folder):
+            shutil.rmtree(tmp_frames_folder)
+            print(f"Deleted temporary frames folder: {tmp_frames_folder}")
 
 
 if __name__ == '__main__':
